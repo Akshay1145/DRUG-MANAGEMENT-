@@ -1,0 +1,441 @@
+classdef Dsystem < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure matlab.ui.Figure
+        TabGroup matlab.ui.container.TabGroup
+        InventoryTab matlab.ui.container.Tab
+        AddPanel matlab.ui.container.Panel
+        DrugNameLabel matlab.ui.control.Label
+        DrugNameEdit matlab.ui.control.EditField
+        DrugIDLabel matlab.ui.control.Label
+        DrugIDEdit matlab.ui.control.EditField
+        QuantityLabel matlab.ui.control.Label
+        QuantityEdit matlab.ui.control.NumericEditField
+        PriceLabel matlab.ui.control.Label
+        PriceEdit matlab.ui.control.NumericEditField
+        ExpiryDateLabel matlab.ui.control.Label
+        ExpiryDateEdit matlab.ui.control.DatePicker
+        AddButton matlab.ui.control.Button
+        InventoryTable matlab.ui.control.Table
+        SearchPanel matlab.ui.container.Panel
+        SearchField matlab.ui.control.EditField
+        SearchButton matlab.ui.control.Button
+        ResetSearchButton matlab.ui.control.Button
+        ManagePanel matlab.ui.container.Panel
+        UpdateButton matlab.ui.control.Button
+        DeleteButton matlab.ui.control.Button
+        ExportButton matlab.ui.control.Button
+        ReportsTab matlab.ui.container.Tab
+        LowStockPanel matlab.ui.container.Panel
+        LowStockTable matlab.ui.control.Table
+        ExpiredDrugsPanel matlab.ui.container.Panel
+        ExpiredDrugsTable matlab.ui.control.Table
+        InventoryStatusPanel matlab.ui.container.Panel
+        InventoryPieChartAxes matlab.ui.control.UIAxes
+        TotalStockValue matlab.ui.control.Label
+        ExpiredValue matlab.ui.control.Label
+        LowStockValue matlab.ui.control.Label
+    end
+
+    properties (Access = private)
+        FullInventoryData table % Store the full inventory data
+    end
+
+    methods (Access = private)
+
+        function updateInventoryTables(app)
+            data = app.FullInventoryData;
+            if ~isempty(data) && ~isempty(data.Quantity)
+                lowStockIdx = data.Quantity < 10;
+                app.LowStockTable.Data = data(lowStockIdx, :);
+            else
+                app.LowStockTable.Data = table();
+            end
+            if ~isempty(data) && ~isempty(data.ExpiryDate)
+                currentDate = datetime('today');
+                expiredIdx = data.ExpiryDate < currentDate;
+                app.ExpiredDrugsTable.Data = data(expiredIdx, :);
+            else
+                app.ExpiredDrugsTable.Data = table();
+            end
+        end
+        
+        function updatePieChart(app)
+            data = app.FullInventoryData;
+            if isempty(data)
+                cla(app.InventoryPieChartAxes);
+                app.TotalStockValue.Text = 'Total Units: 0';
+                app.ExpiredValue.Text = 'Expired Units: 0';
+                app.LowStockValue.Text = 'Low Stock Units: 0';
+                return;
+            end
+            currentDate = datetime('today');
+            lowStockThreshold = 10;
+            expired_idx = data.ExpiryDate < currentDate;
+            expired_units = sum(data.Quantity(expired_idx));
+            not_expired_data = data(~expired_idx, :);
+            low_stock_idx = not_expired_data.Quantity < lowStockThreshold;
+            low_stock_units = sum(not_expired_data.Quantity(low_stock_idx));
+            good_stock_idx = not_expired_data.Quantity >= lowStockThreshold;
+            good_stock_units = sum(not_expired_data.Quantity(good_stock_idx));
+            pie_data = [good_stock_units, low_stock_units, expired_units];
+            pie_labels = {'Good Stock', 'Low Stock', 'Expired'};
+            colors = {[0.2 0.7 0.2], [1 0.6 0.1], [0.8 0.1 0.1]};
+            non_zero_idx = pie_data > 0;
+            pie_data = pie_data(non_zero_idx);
+            pie_labels = pie_labels(non_zero_idx);
+            colors = colors(non_zero_idx);
+            if isempty(pie_data) || all(pie_data==0)
+                cla(app.InventoryPieChartAxes);
+                title(app.InventoryPieChartAxes, 'No Data to Display');
+            else
+                p = pie(app.InventoryPieChartAxes, pie_data, pie_labels);
+                for i = 1:length(p)/2
+                   p(i*2-1).FaceColor = colors{i};
+                end
+                title(app.InventoryPieChartAxes, 'Inventory Status by Units');
+            end
+            app.TotalStockValue.Text = ['Total Units: ' num2str(sum(data.Quantity))];
+            app.ExpiredValue.Text = ['Expired Units: ' num2str(expired_units)];
+            app.LowStockValue.Text = ['Low Stock Units: ' num2str(low_stock_units)];
+        end
+    end
+
+    methods (Access = private)
+
+        function startupFcn(app)
+            % Dataset with 15 Expired, 25 Low Stock, 10 Full Stock
+            drugNames = {
+                'Paracetamol 500mg'; 'Ibuprofen 400mg'; 'Aspirin 75mg'; 'Cetirizine 10mg'; 'Loratadine 10mg'; ...
+                'Amoxicillin 250mg'; 'Azithromycin 500mg'; 'Ciprofloxacin 500mg'; 'Metformin 500mg'; 'Atorvastatin 20mg'; ...
+                'Amlodipine 5mg'; 'Losartan 50mg'; 'Omeprazole 20mg'; 'Ranitidine 150mg'; 'Domperidone 10mg'; ...
+                'Ondansetron 4mg'; 'Salbutamol Inhaler'; 'Montelukast 10mg'; 'Vitamin C 500mg'; 'Vitamin D3 60000IU'; ...
+                'Multivitamin Tablets'; 'Iron Folic Acid'; 'Calcium 500mg'; 'Diclofenac Gel'; 'Povidone-Iodine Ointment'; ...
+                'Mupirocin Ointment'; 'Clotrimazole Cream'; 'Hydrocortisone Cream'; 'Guaifenesin Syrup'; 'Dextromethorphan Syrup'; ...
+                'Lactulose Solution'; 'Bisacodyl 5mg'; 'Antacid Suspension'; 'Oral Rehydration Salts'; 'Metronidazole 400mg'; ...
+                'Tinidazole 500mg'; 'Levofloxacin 500mg'; 'Ofloxacin 200mg'; 'Glimipride 1mg'; 'Voglibose 0.2mg'; ...
+                'Telmisartan 40mg'; 'Rosuvastatin 10mg'; 'Clopidogrel 75mg'; 'Warfarin 2mg'; 'Digoxin 0.25mg'; ...
+                'Furosemide 40mg'; 'Spironolactone 25mg'; 'Phenytoin 100mg'; 'Levothyroxine 50mcg'; 'Prednisolone 5mg'
+                };
+            drugIDs = "D" + string(101:150)';
+            quantities = [
+                50; 25; 100; 80; 5; 120; 60; 45; 90; 7; 200; 150; 30; 140; 88; ...
+                8; 9; 5; 6; 7; 4; 8; 9; 3; 5; 6; 8; 9; 2; 7; 6; 8; 4; 9; 5; 8; 3; 9; 7; 6; ...
+                150; 220; 80; 75; 90; 180; 120; 60; 300; 250
+                ];
+            prices = [
+                20; 35; 15; 30; 45; 90; 150; 120; 60; 85; 40; 55; 50; 35; 25; 45; 250; 180; 70; 95; ...
+                150; 80; 65; 90; 55; 120; 75; 60; 85; 95; 110; 40; 70; 30; 45; 60; 130; 110; 50; 75; ...
+                65; 90; 70; 150; 220; 80; 95; 180; 210; 110
+                ];
+            expiryDates = {
+                '2024-01-15'; '2023-11-20'; '2024-05-01'; '2024-08-10'; '2023-09-05'; ...
+                '2024-12-01'; '2025-01-20'; '2024-02-28'; '2023-07-19'; '2024-10-10'; ...
+                '2025-03-15'; '2024-09-22'; '2023-06-11'; '2024-04-04'; '2025-05-01'; ...
+                '2026-04-30'; '2027-07-31'; '2026-05-31'; '2027-10-31'; '2027-09-30'; ...
+                '2026-03-31'; '2027-02-28'; '2027-06-30'; '2025-11-30'; '2026-08-31'; ...
+                '2026-07-31'; '2025-12-31'; '2027-05-31'; '2026-01-31'; '2025-10-31'; ...
+                '2026-02-28'; '2027-04-30'; '2026-09-30'; '2027-08-31'; '2025-11-30'; ...
+                '2026-10-31'; '2027-01-31'; '2026-11-30'; '2027-03-31'; '2026-08-31'; ...
+                '2027-05-31'; '2026-07-31'; '2025-08-22'; '2026-04-30'; '2027-02-15'; ...
+                '2026-05-31'; '2027-06-30'; '2026-03-31'; '2027-09-30'; '2026-12-31'
+                };
+            initialData = table(drugNames, drugIDs, quantities, prices, datetime(expiryDates), ...
+                'VariableNames', {'DrugName', 'DrugID', 'Quantity', 'Price', 'ExpiryDate'});
+            app.FullInventoryData = initialData;
+            app.InventoryTable.Data = app.FullInventoryData;
+            updateInventoryTables(app);
+            updatePieChart(app);
+        end
+
+        function AddButtonPushed(app, event)
+            drugName = app.DrugNameEdit.Value;
+            drugID = app.DrugIDEdit.Value;
+            quantity = app.QuantityEdit.Value;
+            price = app.PriceEdit.Value;
+            expiryDate = app.ExpiryDateEdit.Value;
+            if isempty(drugName) || isempty(drugID)
+                uialert(app.UIFigure, 'Drug Name and ID are required!', 'Error');
+                return;
+            end
+            if any(strcmp(app.FullInventoryData.DrugID, drugID))
+                uialert(app.UIFigure, 'Drug ID already exists!', 'Error');
+                return;
+            end
+            newRow = {drugName, drugID, quantity, price, expiryDate};
+            app.FullInventoryData = [app.FullInventoryData; newRow];
+            app.InventoryTable.Data = app.FullInventoryData;
+            updateInventoryTables(app);
+            updatePieChart(app);
+            app.DrugNameEdit.Value = '';
+            app.DrugIDEdit.Value = '';
+            app.QuantityEdit.Value = 0;
+            app.PriceEdit.Value = 0;
+            app.ExpiryDateEdit.Value = datetime('today');
+            numRows = height(app.InventoryTable.Data);
+            scroll(app.InventoryTable, 'row', numRows);
+            uialert(app.UIFigure, 'Drug added successfully!', 'Success');
+        end
+
+        function SearchButtonPushed(app, ~)
+            searchText = app.SearchField.Value;
+            if isempty(searchText)
+                uialert(app.UIFigure, 'Please enter a search term!', 'Warning');
+                return;
+            end
+            data = app.FullInventoryData;
+            nameMatches = contains(data.DrugName, searchText, 'IgnoreCase', true);
+            idMatches = contains(data.DrugID, searchText, 'IgnoreCase', true);
+            matches = nameMatches | idMatches;
+            if any(matches)
+                app.InventoryTable.Data = data(matches, :);
+            else
+                uialert(app.UIFigure, 'No matching drugs found!', 'Info');
+                app.InventoryTable.Data = table();
+            end
+        end
+
+        function ResetSearchButtonPushed(app, ~)
+            app.SearchField.Value = '';
+            app.InventoryTable.Data = app.FullInventoryData;
+        end
+
+        function UpdateButtonPushed(app, event)
+            selectedRow = app.InventoryTable.Selection;
+            if isempty(selectedRow)
+                uialert(app.UIFigure, 'Please select a row to update!', 'Error');
+                return;
+            end
+            displayedData = app.InventoryTable.Data;
+            selectedDrugID_displayed = displayedData.DrugID{selectedRow};
+            fullData = app.FullInventoryData;
+            [~, fullDataRow] = ismember(selectedDrugID_displayed, fullData.DrugID);
+            if fullDataRow == 0
+                uialert(app.UIFigure, 'Could not find the selected drug.', 'Error');
+                return;
+            end
+            selectedDrug = fullData(fullDataRow, :);
+            prompt = {'Drug Name:', 'Quantity:', 'Price (₹):', 'Expiry Date (yyyy-mm-dd):'};
+            dlgtitle = 'Update Drug';
+            dims = [1 35];
+            definput = {selectedDrug.DrugName{1}, num2str(selectedDrug.Quantity), ...
+                num2str(selectedDrug.Price), datestr(selectedDrug.ExpiryDate, 'yyyy-mm-dd')};
+            answer = inputdlg(prompt, dlgtitle, dims, definput);
+            if ~isempty(answer)
+                fullData.DrugName(fullDataRow) = {answer{1}};
+                fullData.Quantity(fullDataRow) = str2double(answer{2});
+                fullData.Price(fullDataRow) = str2double(answer{3});
+                try
+                    fullData.ExpiryDate(fullDataRow) = datetime(answer{4}, 'InputFormat', 'yyyy-MM-dd');
+                catch
+                    uialert(app.UIFigure, 'Invalid date format. Please use yyyy-mm-dd.', 'Error');
+                    return;
+                end
+                app.FullInventoryData = fullData;
+                searchText = app.SearchField.Value;
+                if ~isempty(searchText)
+                    nameMatches = contains(app.FullInventoryData.DrugName, searchText, 'IgnoreCase', true);
+                    idMatches = contains(app.FullInventoryData.DrugID, searchText, 'IgnoreCase', true);
+                    matches = nameMatches | idMatches;
+                    app.InventoryTable.Data = app.FullInventoryData(matches, :);
+                else
+                    app.InventoryTable.Data = app.FullInventoryData;
+                end
+                updateInventoryTables(app);
+                updatePieChart(app);
+                uialert(app.UIFigure, 'Drug updated successfully!', 'Success');
+            end
+        end
+
+        function DeleteButtonPushed(app, event)
+            selectedRow = app.InventoryTable.Selection;
+            if isempty(selectedRow)
+                uialert(app.UIFigure, 'Please select a row to delete!', 'Error');
+                return;
+            end
+            displayedData = app.InventoryTable.Data;
+            selectedDrugID_displayed = displayedData.DrugID{selectedRow};
+            selection = uiconfirm(app.UIFigure, 'Are you sure?', 'Confirm Delete', ...
+                'Options', {'Yes', 'No'}, 'DefaultOption', 2);
+            if strcmp(selection, 'Yes')
+                fullData = app.FullInventoryData;
+                [~, fullDataRow] = ismember(selectedDrugID_displayed, fullData.DrugID);
+                if fullDataRow == 0
+                    uialert(app.UIFigure, 'Could not find the selected drug.', 'Error');
+                    return;
+                end
+                fullData(fullDataRow, :) = [];
+                app.FullInventoryData = fullData;
+                searchText = app.SearchField.Value;
+                if ~isempty(searchText)
+                    nameMatches = contains(app.FullInventoryData.DrugName, searchText, 'IgnoreCase', true);
+                    idMatches = contains(app.FullInventoryData.DrugID, searchText, 'IgnoreCase', true);
+                    matches = nameMatches | idMatches;
+                    app.InventoryTable.Data = app.FullInventoryData(matches, :);
+                else
+                    app.InventoryTable.Data = app.FullInventoryData;
+                end
+                updateInventoryTables(app);
+                updatePieChart(app);
+                uialert(app.UIFigure, 'Drug deleted successfully!', 'Success');
+            end
+        end
+
+        function ExportButtonPushed(app, event)
+            [file, path] = uiputfile('*.xlsx', 'Save Inventory Report');
+            if file ~= 0
+                writetable(app.FullInventoryData, fullfile(path, file));
+                uialert(app.UIFigure, 'Inventory exported to Excel!', 'Success');
+            end
+        end
+    end
+
+    methods (Access = public)
+
+        function createComponents(app)
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.Position = [100 100 900 600];
+            app.UIFigure.Name = 'Drug Inventory Management System';
+            app.UIFigure.Color = [0.96 0.98 1];
+            app.TabGroup = uitabgroup(app.UIFigure);
+            app.TabGroup.Position = [20 20 860 560];
+            app.InventoryTab = uitab(app.TabGroup);
+            app.InventoryTab.Title = 'Inventory';
+            app.InventoryTab.BackgroundColor = [1 1 1];
+            app.AddPanel = uipanel(app.InventoryTab);
+            app.AddPanel.Title = 'Add New Drug';
+            app.AddPanel.Position = [20 400 400 150];
+            app.AddPanel.BackgroundColor = [0.9 1.0 0.9];
+            app.AddPanel.FontWeight = 'bold';
+            app.DrugNameLabel = uilabel(app.AddPanel);
+            app.DrugNameLabel.Text = 'Drug Name:';
+            app.DrugNameLabel.Position = [20 100 70 22];
+            app.DrugNameEdit = uieditfield(app.AddPanel, 'text');
+            app.DrugNameEdit.Position = [100 100 150 22];
+            app.DrugIDLabel = uilabel(app.AddPanel);
+            app.DrugIDLabel.Text = 'Drug ID:';
+            app.DrugIDLabel.Position = [20 70 70 22];
+            app.DrugIDEdit = uieditfield(app.AddPanel, 'text');
+            app.DrugIDEdit.Position = [100 70 150 22];
+            app.QuantityLabel = uilabel(app.AddPanel);
+            app.QuantityLabel.Text = 'Quantity:';
+            app.QuantityLabel.Position = [20 40 70 22];
+            app.QuantityEdit = uieditfield(app.AddPanel, 'numeric');
+            app.QuantityEdit.Position = [100 40 150 22];
+            app.QuantityEdit.Value = 0;
+            app.PriceLabel = uilabel(app.AddPanel);
+            app.PriceLabel.Text = 'Price (₹):';
+            app.PriceLabel.Position = [270 100 70 22];
+            app.PriceEdit = uieditfield(app.AddPanel, 'numeric');
+            app.PriceEdit.Position = [330 100 60 22];
+            app.PriceEdit.Value = 0;
+            app.ExpiryDateLabel = uilabel(app.AddPanel);
+            app.ExpiryDateLabel.Text = 'Expiry Date:';
+            app.ExpiryDateLabel.Position = [270 70 70 22];
+            app.ExpiryDateEdit = uidatepicker(app.AddPanel);
+            app.ExpiryDateEdit.Position = [330 70 100 22];
+            app.ExpiryDateEdit.Value = datetime('today');
+            app.AddButton = uibutton(app.AddPanel, 'push');
+            app.AddButton.Text = 'Add Drug';
+            app.AddButton.Position = [270 20 100 22];
+            app.AddButton.ButtonPushedFcn = createCallbackFcn(app, @AddButtonPushed, true);
+            app.AddButton.BackgroundColor = [0.2 0.7 0.2];
+            app.AddButton.FontColor = [1 1 1];
+            app.InventoryTable = uitable(app.InventoryTab);
+            app.InventoryTable.Position = [20 20 820 370];
+            app.InventoryTable.ColumnName = {'Drug Name', 'Drug ID', 'Quantity', 'Price (₹)', 'Expiry Date'};
+            app.InventoryTable.ColumnWidth = {150, 100, 80, 80, 120};
+            app.SearchPanel = uipanel(app.InventoryTab);
+            app.SearchPanel.Title = 'Search Drugs';
+            app.SearchPanel.Position = [440 400 400 150];
+            app.SearchPanel.BackgroundColor = [0.9 0.95 1.0];
+            app.SearchPanel.FontWeight = 'bold';
+            app.SearchField = uieditfield(app.SearchPanel, 'text');
+            app.SearchField.Position = [20 80 250 22];
+            app.SearchField.Placeholder = 'Enter drug name or ID';
+            app.SearchButton = uibutton(app.SearchPanel, 'push');
+            app.SearchButton.Text = 'Search';
+            app.SearchButton.Position = [280 80 100 22];
+            app.SearchButton.ButtonPushedFcn = createCallbackFcn(app, @SearchButtonPushed, true);
+            app.SearchButton.BackgroundColor = [0.1 0.5 0.9];
+            app.SearchButton.FontColor = [1 1 1];
+            app.ResetSearchButton = uibutton(app.SearchPanel, 'push');
+            app.ResetSearchButton.Text = 'Reset';
+            app.ResetSearchButton.Position = [280 40 100 22];
+            app.ResetSearchButton.ButtonPushedFcn = createCallbackFcn(app, @ResetSearchButtonPushed, true);
+            app.ManagePanel = uipanel(app.InventoryTab);
+            app.ManagePanel.Title = 'Manage Inventory';
+            app.ManagePanel.Position = [440 250 400 140];
+            app.ManagePanel.BackgroundColor = [1.0 0.95 0.85];
+            app.ManagePanel.FontWeight = 'bold';
+            app.UpdateButton = uibutton(app.ManagePanel, 'push');
+            app.UpdateButton.Text = 'Update';
+            app.UpdateButton.Position = [20 80 100 22];
+            app.UpdateButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateButtonPushed, true);
+            app.UpdateButton.BackgroundColor = [1 0.6 0.1];
+            app.UpdateButton.FontColor = [1 1 1];
+            app.DeleteButton = uibutton(app.ManagePanel, 'push');
+            app.DeleteButton.Text = 'Delete';
+            app.DeleteButton.Position = [140 80 100 22];
+            app.DeleteButton.ButtonPushedFcn = createCallbackFcn(app, @DeleteButtonPushed, true);
+            app.DeleteButton.BackgroundColor = [0.9 0.2 0.2];
+            app.DeleteButton.FontColor = [1 1 1];
+            app.ExportButton = uibutton(app.ManagePanel, 'push');
+            app.ExportButton.Text = 'Export to Excel';
+            app.ExportButton.Position = [260 80 100 22];
+            app.ExportButton.ButtonPushedFcn = createCallbackFcn(app, @ExportButtonPushed, true);
+            app.ReportsTab = uitab(app.TabGroup);
+            app.ReportsTab.Title = 'Reports';
+            app.ReportsTab.BackgroundColor = [1 1 1];
+            app.LowStockPanel = uipanel(app.ReportsTab);
+            app.LowStockPanel.Title = 'Low Stock Alert (Quantity < 10)';
+            app.LowStockPanel.Position = [20 280 400 220];
+            app.LowStockPanel.FontWeight = 'bold';
+            app.LowStockTable = uitable(app.LowStockPanel);
+            app.LowStockTable.Position = [10 10 380 180];
+            app.ExpiredDrugsPanel = uipanel(app.ReportsTab);
+            app.ExpiredDrugsPanel.Title = 'Expired Drugs';
+            app.ExpiredDrugsPanel.Position = [20 30 400 220];
+            app.ExpiredDrugsPanel.FontWeight = 'bold';
+            app.ExpiredDrugsTable = uitable(app.ExpiredDrugsPanel);
+            app.ExpiredDrugsTable.Position = [10 10 380 180];
+            app.InventoryStatusPanel = uipanel(app.ReportsTab);
+            app.InventoryStatusPanel.Title = 'Inventory Status Overview';
+            app.InventoryStatusPanel.Position = [440 230 400 270];
+            app.InventoryStatusPanel.FontWeight = 'bold';
+            app.InventoryPieChartAxes = uiaxes(app.InventoryStatusPanel);
+            app.InventoryPieChartAxes.Position = [150 10 240 230];
+            app.TotalStockValue = uilabel(app.InventoryStatusPanel);
+            app.TotalStockValue.Text = 'Total Units:';
+            app.TotalStockValue.FontSize = 14;
+            app.TotalStockValue.FontWeight = 'bold';
+            app.TotalStockValue.Position = [20 180 130 22];
+            app.ExpiredValue = uilabel(app.InventoryStatusPanel);
+            app.ExpiredValue.Text = 'Expired Units:';
+            app.ExpiredValue.FontSize = 14;
+            app.ExpiredValue.FontColor = [0.8 0.1 0.1];
+            app.ExpiredValue.Position = [20 130 130 22];
+            app.LowStockValue = uilabel(app.InventoryStatusPanel);
+            app.LowStockValue.Text = 'Low Stock Units:';
+            app.LowStockValue.FontSize = 14;
+            app.LowStockValue.FontColor = [1 0.6 0.1];
+            app.LowStockValue.Position = [20 80 130 22];
+            app.UIFigure.Visible = 'on';
+        end
+    end
+
+    methods (Access = public)
+        function app = Dsystem
+            createComponents(app)
+            registerApp(app, app.UIFigure)
+            runStartupFcn(app, @startupFcn)
+            if nargout == 0
+                clear app
+            end
+        end
+        function delete(app)
+            delete(app.UIFigure)
+        end
+    end
+end
